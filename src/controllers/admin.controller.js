@@ -16,7 +16,7 @@ const updateCourse = async (req, res) => {
     const course = await adminService.updateCourse(req.params.id, req.body);
     res.json(course);
   } catch (err) {
-    res.status(404).json({ message: err.message });
+    res.status(err.statusCode || 400).json({ message: err.message });
   }
 };
 
@@ -25,7 +25,7 @@ const deleteCourse = async (req, res) => {
     const data = await adminService.deleteCourse(req.params.id);
     res.json(data);
   } catch (err) {
-    res.status(404).json({ message: err.message });
+    res.status(err.statusCode || 400).json({ message: err.message });
   }
 };
 
@@ -42,7 +42,7 @@ const getEnrollments = async (req, res) => {
 // ✅ NEW: assignments list
 const getAssignments = async (req, res) => {
   try {
-    const data = await adminService.getAssignments();
+    const data = await adminService.getAssignments(req.query);
     res.json(data);
   } catch (err) {
     res.status(400).json({ message: err.message });

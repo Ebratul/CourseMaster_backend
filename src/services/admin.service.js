@@ -4,6 +4,9 @@ const Course = require("../models/Course");
 const Enrollment = require("../models/Enrollment");
 const AssignmentSubmission = require("../models/AssignmentSubmission");
 const User = require("../models/User");
+const QuizSubmission = require("../models/QuizSubmission");
+
+const httpError = (message, statusCode) => Object.assign(new Error(message), { statusCode });
 
 const createCourse = async (payload) => {
   const course = await Course.create(payload);
@@ -11,14 +14,21 @@ const createCourse = async (payload) => {
 };
 
 const updateCourse = async (id, payload) => {
-  const course = await Course.findByIdAndUpdate(id, payload, { new: true });
-  if (!course) throw new Error("Course not found");
+  // runValidators so updates obey the same rules as creation (e.g. price >= 0)
+  const course = await Course.findByIdAndUpdate(id, payload, { new: true, runValidators: true });
+  if (!course) throw httpError("Course not found", 404);
   return course;
 };
 
 const deleteCourse = async (id) => {
   const course = await Course.findByIdAndDelete(id);
-  if (!course) throw new Error("Course not found");
+  if (!course) throw httpError("Course not found", 404);
+  // Remove data that referenced the deleted course so no orphaned rows remain
+  await Promise.all([
+    Enrollment.deleteMany({ course: id }),
+    AssignmentSubmission.deleteMany({ course: id }),
+    QuizSubmission.deleteMany({ course: id }),
+  ]);
   return { message: "Course deleted" };
 };
 
@@ -36,10 +46,11 @@ const getEnrollments = async (query) => {
     .sort({ createdAt: -1 });
 };
 
-// ✅ NEW: get all assignment submissions (Code-8 bug: queries by courseId instead of course)
+// ✅ NEW: get all assignment submissions (optionally filtered by course / status)
 const getAssignments = async (query = {}) => {
   const filter = {};
-  if (query.courseId) filter.courseId = query.courseId; // Mongoose schema has 'course', not 'courseId'
+  if (query.courseId) filter.course = query.courseId;
+  if (query.status) filter.status = query.status;
 
   const submissions = await AssignmentSubmission.find(filter)
     .populate("student", "name email")
@@ -74,7 +85,17 @@ const getAssignments = async (query = {}) => {
 
 // review/update an assignment submission (admin)
 const reviewAssignment = async (id, payload, adminId) => {
-  const { reviewNotes, grade, status } = payload;
+  const { reviewNotes, grade, status } = payload || {};
+
+  if (typeof grade !== "undefined" && grade !== null) {
+    const g = Number(grade);
+    if (!Number.isFinite(g) || g < 0 || g > 100) {
+      throw new Error("Grade must be a number between 0 and 100");
+    }
+  }
+  if (typeof status !== "undefined" && !["submitted", "reviewed"].includes(status)) {
+    throw new Error("Status must be either 'submitted' or 'reviewed'");
+  }
 
   const update = {};
   if (typeof status !== "undefined") update.status = status;
@@ -82,7 +103,7 @@ const reviewAssignment = async (id, payload, adminId) => {
   if (typeof grade !== "undefined") update.grade = grade;
   if (adminId) update.reviewer = adminId;
 
-  const submission = await AssignmentSubmission.findByIdAndUpdate(id, update, { new: true })
+  const submission = await AssignmentSubmission.findByIdAndUpdate(id, update, { new: true, runValidators: true })
     .populate("student", "name email")
     .populate("course", "title")
     .populate("reviewer", "name");
