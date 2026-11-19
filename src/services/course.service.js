@@ -1,8 +1,24 @@
 // service to handle course-related operations
 
+const mongoose = require("mongoose");
 const Course = require("../models/Course");
 
-const getCourses = async (query) => {
+// Escape user input before using it inside a RegExp so searches such as
+// "C++" or "(react" don't throw "Regular expression is invalid".
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Remove quiz answers from a course so they are not exposed publicly.
+const stripQuizAnswers = (course) => {
+  const obj = course.toObject ? course.toObject() : course;
+  (obj.syllabus || []).forEach((mod) =>
+    (mod.lessons || []).forEach((lesson) => {
+      lesson.quiz = (lesson.quiz || []).map(({ correctIndex, ...rest }) => rest);
+    })
+  );
+  return obj;
+};
+
+const getCourses = async (query, { includeAnswers = false } = {}) => {
   const {
     page = 1,
     limit = 8,
@@ -18,21 +34,24 @@ const getCourses = async (query) => {
 
   const filter = {};
 
-  if (search && typeof search === "string") {
+  if (search && typeof search === "string" && search.trim()) {
+    const safeSearch = escapeRegex(search.trim());
     filter.$or = [
-      { title: { $regex: search, $options: "i" } },
-      { instructorName: { $regex: search, $options: "i" } },
+      { title: { $regex: safeSearch, $options: "i" } },
+      { instructorName: { $regex: safeSearch, $options: "i" } },
     ];
   }
 
-  if (category && typeof category === "string") {
-    filter.category = category;
+  if (category && typeof category === "string" && category.trim()) {
+    // case-insensitive partial match so "web" finds "Web Development"
+    filter.category = { $regex: escapeRegex(category.trim()), $options: "i" };
   }
 
   if (tags && typeof tags === "string") {
     const tagArray = tags.split(",").map(t => t.trim()).filter(t => t); // "mern,react"
     if (tagArray.length > 0) {
-      filter.tags = { $in: tagArray };
+      // case-insensitive so "react" matches the stored tag "React"
+      filter.tags = { $in: tagArray.map((t) => new RegExp(`^${escapeRegex(t)}$`, "i")) };
     }
   }
 
@@ -44,6 +63,7 @@ const getCourses = async (query) => {
 
   const [courses, total] = await Promise.all([
     Course.find(filter)
+      .select(includeAnswers ? "" : "-syllabus.lessons.quiz.correctIndex")
       .sort(sortObj)
       .skip(skip)
       .limit(limitNum),
@@ -58,10 +78,11 @@ const getCourses = async (query) => {
   };
 };
 
-const getCourseById = async (id) => {
+const getCourseById = async (id, { includeAnswers = false } = {}) => {
+  if (!mongoose.isValidObjectId(id)) throw new Error("Course not found");
   const course = await Course.findById(id);
   if (!course) throw new Error("Course not found");
-  return course;
+  return includeAnswers ? course : stripQuizAnswers(course);
 };
 
 module.exports = { getCourses, getCourseById };

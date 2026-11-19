@@ -7,7 +7,9 @@ const getCourses = async (req, res) => {
   try {
     // Ensure DB connection before processing request (for serverless)
     await connectDB();
-    const data = await courseService.getCourses(req.query);
+    const data = await courseService.getCourses(req.query, {
+      includeAnswers: req.user?.role === "admin",
+    });
     res.json(data);
   } catch (err) {
     console.error("Get courses error:", err.message);
@@ -17,7 +19,9 @@ const getCourses = async (req, res) => {
 
 const getCourseById = async (req, res) => {
   try {
-    const course = await courseService.getCourseById(req.params.id);
+    const course = await courseService.getCourseById(req.params.id, {
+      includeAnswers: req.user?.role === "admin",
+    });
     res.json(course);
   } catch (err) {
     res.status(404).json({ message: err.message });
