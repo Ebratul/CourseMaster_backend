@@ -3,8 +3,11 @@ const Enrollment = require("../models/Enrollment");
 const QuizSubmission = require("../models/QuizSubmission");
 
 const submitQuiz = async (studentId, payload) => {
-  const { courseId, lessonId, answers } = payload;
+  const { courseId, lessonId, answers } = payload || {};
   // answers = [selectedIndex, selectedIndex, ...]
+  if (!Array.isArray(answers) || answers.some((a) => !Number.isInteger(a))) {
+    throw new Error("answers must be an array of selected option indexes");
+  }
 
   const enrolled = await Enrollment.findOne({ student: studentId, course: courseId });
   if (!enrolled) throw new Error("You are not enrolled in this course");
@@ -23,6 +26,9 @@ const submitQuiz = async (studentId, payload) => {
   }
   if (!quiz) throw new Error("Lesson not found");
   if (quiz.length === 0) throw new Error("No quiz in this lesson");
+  if (answers.length !== quiz.length) {
+    throw new Error(`Please answer all ${quiz.length} questions`);
+  }
 
   let score = 0;
   quiz.forEach((q, i) => {
@@ -30,8 +36,7 @@ const submitQuiz = async (studentId, payload) => {
   });
 
   const total = quiz.length;
-  // Code-4 bug: multiplied by 10 instead of 100
-  const percent = Math.round((score / total) * 10);
+  const percent = Math.round((score / total) * 100);
 
   // Check if student already submitted this quiz (optional - allow retakes)
   // If you want to prevent duplicates, uncomment the following:
@@ -65,6 +70,9 @@ const submitQuiz = async (studentId, payload) => {
     total,
     score,
     percent,
+    answers,
+    // correct answers are only revealed to the student after they submit
+    correctAnswers: quiz.map((q) => q.correctIndex),
     createdAt: submission.createdAt,
   };
 };
@@ -74,9 +82,23 @@ const getMyQuizSubmissions = async (studentId, courseId = null) => {
   const filter = { student: studentId };
   if (courseId) filter.course = courseId;
 
-  return QuizSubmission.find(filter)
-    .populate("course", "title")
+  const submissions = await QuizSubmission.find(filter)
+    .populate("course", "title syllabus")
     .sort({ createdAt: -1 });
+
+  // Attach the correct answers for quizzes the student has already submitted,
+  // and drop the heavy syllabus from the response.
+  return submissions.map((sub) => {
+    const obj = sub.toObject();
+    let lesson = null;
+    for (const mod of obj.course?.syllabus || []) {
+      lesson = (mod.lessons || []).find((l) => String(l._id) === String(obj.lessonId));
+      if (lesson) break;
+    }
+    obj.correctAnswers = (lesson?.quiz || []).map((q) => q.correctIndex);
+    if (obj.course) obj.course = { _id: obj.course._id, title: obj.course.title };
+    return obj;
+  });
 };
 
 // Get quiz statistics for a course
