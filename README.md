@@ -406,3 +406,12 @@ The backend is deployed on **Vercel**. Make sure to set all environment variable
 - Uses `nodemon` for auto-restart during development
 - MongoDB connection is handled via Mongoose
 
+
+## Bug bash: fixes and report
+
+37 bugs found during bug bashing are fixed in this repository and the frontend
+(https://github.com/Ebratul/CourseMaster_frontend). See [docs/BUG_REPORT.md](docs/BUG_REPORT.md).
+
+Local setup: copy `.env.example` to `.env` and fill in `MONGO_URI`, `JWT_SECRET` and `ADMIN_REGISTRATION_KEY`,
+then `npm install`, `npm run seed` and `npm run dev`. With the server running, `node scripts/verify-api.mjs`
+re-runs the 28 API checks used to verify the fixes.
